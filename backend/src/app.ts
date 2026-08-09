@@ -13,6 +13,9 @@ import { Role } from '@prisma/client';
 
 const app = express();
 
+// Trust proxy for deployment behind reverse proxy (Render, etc.)
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
