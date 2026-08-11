@@ -52,9 +52,9 @@ export const searchJobs = async (req: Request, res: Response): Promise<void> => 
       where.isPaid = filters.isPaid;
     }
 
-    // Only filter by isRemote if checkbox is checked
-    if (req.query.isRemote !== undefined) {
-      where.isRemote = filters.isRemote;
+    // Only filter by isRemote if checkbox is checked (true)
+    if (filters.isRemote === true) {
+      where.isRemote = true;
     }
 
     const skip = (filters.page! - 1) * filters.limit!;
