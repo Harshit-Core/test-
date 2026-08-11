@@ -1,119 +1,152 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import api from '../lib/api';
-import { Job } from '../types';
-import toast from 'react-hot-toast';
+import { Request, Response } from 'express';
+import { PrismaClient, JobSource } from '@prisma/client';
+import { validationResult } from 'express-validator';
+import axios from 'axios';
 
-export default function JobBoard() {
-  const [keyword, setKeyword] = useState('');
-  const [isRemote, setIsRemote] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+const prisma = new PrismaClient();
 
-  const searchJobs = async (remoteFilter?: boolean) => {
-    setIsLoading(true);
-    try {
-      // Use the passed parameter if provided, otherwise use state
-      const useRemoteFilter = remoteFilter !== undefined ? remoteFilter : isRemote;
-      
-      const params = new URLSearchParams();
-      if (keyword) params.append('keyword', keyword);
-      if (useRemoteFilter) params.append('isRemote', 'true');
-      
-      console.log('Fetching with isRemote:', useRemoteFilter, 'params:', params.toString());
-      const response = await api.get(`/jobs/search?${params.toString()}`);
-      console.log('Received jobs:', response.data.jobs.length);
-      
-      // Double-check what we received
-      const remoteCount = response.data.jobs.filter((j: Job) => j.isRemote).length;
-      const nonRemoteCount = response.data.jobs.length - remoteCount;
-      console.log(`Jobs breakdown: ${remoteCount} remote, ${nonRemoteCount} non-remote`);
-      
-      setJobs(response.data.jobs);
-    } catch (error) {
-      console.error('Search error:', error);
-      toast.error('Failed to search jobs');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSearch = () => {
-    console.log('Searching with isRemote:', isRemote);
-    searchJobs(isRemote);
-  };
-
-  const handleRemoteChange = (checked: boolean) => {
-    console.log('Remote checkbox changed to:', checked);
-    setIsRemote(checked);
-    // Automatically search with the new filter value
-    searchJobs(checked);
-  };
-
-  const applyMutation = useMutation({
-    mutationFn: async (jobId: string) => {
-      await api.post('/applications', { jobId, status: 'SAVED' });
-    },
-    onSuccess: () => toast.success('Job saved to applications'),
-    onError: () => toast.error('Failed to save job')
-  });
-
-  return (
-    <div className="max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Job Board</h1>
-      
-      <div className="card mb-6">
-        <div className="flex gap-4">
-          <input
-            type="text"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="Search jobs..."
-            className="input flex-1"
-          />
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={isRemote}
-              onChange={(e) => handleRemoteChange(e.target.checked)}
-            />
-            Remote Only
-          </label>
-          <button onClick={handleSearch} className="btn btn-primary">
-            Search
-          </button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <p>Loading jobs...</p>
-      ) : jobs && jobs.length > 0 ? (
-        <div className="space-y-4">
-          {jobs.map((job: Job) => (
-            <div key={job.id} className="card">
-              <h3 className="text-xl font-bold">{job.title}</h3>
-              <p className="text-gray-600">{job.company} - {job.location}</p>
-              <p className="mt-2">{job.description.substring(0, 200)}...</p>
-              <div className="flex gap-2 mt-3">
-                {job.isRemote && <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm">Remote</span>}
-                {job.isPaid && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">Paid</span>}
-              </div>
-              <div className="flex gap-3 mt-4">
-                <a href={job.externalUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
-                  View Job
-                </a>
-                <button onClick={() => applyMutation.mutate(job.id)} className="btn btn-secondary">
-                  Save to Applications
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card text-center py-8">
-          <p className="text-gray-600">No jobs found. Try adding jobs through the Admin Panel or adjust your search filters.</p>
-        </div>
-      )}
-    </div>
-  );
+interface JobFilters {
+  keyword?: string;
+  duration?: string;
+  isPaid?: boolean;
+  isRemote?: boolean;
+  page?: number;
+  limit?: number;
 }
+
+export const searchJobs = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    const filters: JobFilters = {
+      keyword: req.query.keyword as string,
+      duration: req.query.duration as string,
+      isPaid: req.query.isPaid === 'true',
+      isRemote: req.query.isRemote === 'true',
+      page: parseInt(req.query.page as string) || 1,
+      limit: parseInt(req.query.limit as string) || 20
+    };
+
+    const where: any = {};
+
+    // Keyword search across title, description, and company
+    if (filters.keyword) {
+      where.OR = [
+        { title: { contains: filters.keyword, mode: 'insensitive' } },
+        { description: { contains: filters.keyword, mode: 'insensitive' } },
+        { company: { contains: filters.keyword, mode: 'insensitive' } }
+      ];
+    }
+
+    // Duration filter
+    if (filters.duration) {
+      where.duration = { contains: filters.duration, mode: 'insensitive' };
+    }
+
+    // Only filter by isPaid if explicitly provided
+    if (req.query.isPaid !== undefined) {
+      where.isPaid = filters.isPaid;
+    }
+
+    // Only filter by isRemote if checkbox is checked (true)
+    if (filters.isRemote === true) {
+      where.isRemote = true;
+    }
+
+    const skip = (filters.page! - 1) * filters.limit!;
+
+    const [jobs, total] = await Promise.all([
+      prisma.job.findMany({
+        where,
+        skip,
+        take: filters.limit,
+        orderBy: { postedDate: 'desc' }
+      }),
+      prisma.job.count({ where })
+    ]);
+
+    console.log(`Search filters:`, req.query);
+    console.log(`Found ${jobs.length} jobs out of ${total} total`);
+
+    res.json({
+      jobs,
+      pagination: {
+        page: filters.page,
+        limit: filters.limit,
+        total,
+        totalPages: Math.ceil(total / filters.limit!)
+      }
+    });
+  } catch (error) {
+    console.error('Job search error:', error);
+    res.status(500).json({ error: 'Failed to search jobs' });
+  }
+};
+
+export const getJobById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { jobId } = req.params;
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobId }
+    });
+
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+
+    res.json(job);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch job' });
+  }
+};
+
+export const fetchAdzunaJobs = async (): Promise<any[]> => {
+  try {
+    const appId = process.env.ADZUNA_APP_ID;
+    const apiKey = process.env.ADZUNA_API_KEY;
+
+    if (!appId || !apiKey) {
+      console.warn('Adzuna API credentials not configured');
+      return [];
+    }
+
+    const response = await axios.get(
+      `https://api.adzuna.com/v1/api/jobs/us/search/1`,
+      {
+        params: {
+          app_id: appId,
+          app_key: apiKey,
+          what: 'software developer internship',
+          results_per_page: 50
+        }
+      }
+    );
+
+    return response.data.results || [];
+  } catch (error) {
+    console.error('Adzuna API error:', error);
+    return [];
+  }
+};
+
+export const fetchRemoteOKJobs = async (): Promise<any[]> => {
+  try {
+    const response = await axios.get('https://remoteok.com/api', {
+      headers: {
+        'User-Agent': 'TechStackRecommender/1.0'
+      }
+    });
+
+    const jobs = response.data;
+    return Array.isArray(jobs) ? jobs.slice(1, 51) : [];
+  } catch (error) {
+    console.error('RemoteOK API error:', error);
+    return [];
+  }
+};
