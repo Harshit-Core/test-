@@ -23,6 +23,7 @@ enum ApplicationStatus {
 enum JobSource {
   ADZUNA
   REMOTEOK
+  HIMALAYAS
   MANUAL
 }
 
