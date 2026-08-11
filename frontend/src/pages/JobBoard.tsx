@@ -93,7 +93,6 @@ export default function JobBoard() {
             <div key={job.id} className="card">
               <h3 className="text-xl font-bold">{job.title}</h3>
               <p className="text-gray-600">{job.company} - {job.location}</p>
-              <p className="text-sm text-gray-500">isRemote: {job.isRemote ? 'true' : 'false'}</p>
               <p className="mt-2">{job.description.substring(0, 200)}...</p>
               <div className="flex gap-2 mt-3">
                 {job.isRemote && <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm">Remote</span>}
