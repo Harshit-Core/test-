@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { PrismaClient, JobSource } from '@prisma/client';
-import { fetchAdzunaJobs, fetchRemoteOKJobs } from '../controllers/jobController';
+import { fetchAdzunaJobs, fetchHimalayasJobs } from '../controllers/jobController';
 
 const prisma = new PrismaClient();
 
@@ -8,9 +8,9 @@ export const refreshJobs = async (): Promise<void> => {
   console.log('Starting job refresh...');
 
   try {
-    const [adzunaJobs, remoteOKJobs] = await Promise.all([
+    const [adzunaJobs, himalayasJobs] = await Promise.all([
       fetchAdzunaJobs(),
-      fetchRemoteOKJobs()
+      fetchHimalayasJobs()
     ]);
 
     const adzunaInserts = adzunaJobs.map((job: any) => ({
@@ -28,24 +28,24 @@ export const refreshJobs = async (): Promise<void> => {
       expiryDate: null
     }));
 
-    const remoteOKInserts = remoteOKJobs
+    const himalayasInserts = himalayasJobs
       .map((job: any) => ({
-        title: job.position || 'Untitled',
-        company: job.company || 'Unknown',
-        description: job.description || '',
-        location: 'Remote',
+        title: job.title || 'Untitled',
+        company: job.company_name || 'Unknown',
+        description: job.excerpt || job.description || '',
+        location: job.location || 'Remote',
         duration: null,
         isPaid: true,
-        isRemote: true,
+        isRemote: job.remote === true || job.location?.toLowerCase().includes('remote'),
         tags: job.tags || [],
-        source: JobSource.REMOTEOK,
-        externalUrl: job.url || `https://remoteok.com/remote-jobs/${job.id}`,
-        postedDate: job.date ? new Date(job.date * 1000) : new Date(),
+        source: JobSource.HIMALAYAS,
+        externalUrl: job.url || `https://himalayas.app/jobs/${job.id}`,
+        postedDate: job.pub_date ? new Date(job.pub_date) : new Date(),
         expiryDate: null
       }))
-      .filter((job: any) => !isNaN(job.postedDate.getTime())); // Remove jobs with invalid dates
+      .filter((job: any) => job.externalUrl && !isNaN(job.postedDate.getTime()));
 
-    for (const jobData of [...adzunaInserts, ...remoteOKInserts]) {
+    for (const jobData of [...adzunaInserts, ...himalayasInserts]) {
       await prisma.job.upsert({
         where: {
           externalUrl: jobData.externalUrl
@@ -57,14 +57,14 @@ export const refreshJobs = async (): Promise<void> => {
 
     const expiredCount = await prisma.job.deleteMany({
       where: {
-        source: { in: [JobSource.ADZUNA, JobSource.REMOTEOK] },
+        source: { in: [JobSource.ADZUNA, JobSource.HIMALAYAS] },
         postedDate: {
           lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
         }
       }
     });
 
-    console.log(`Job refresh complete: ${adzunaInserts.length + remoteOKInserts.length} jobs synced, ${expiredCount.count} expired jobs removed`);
+    console.log(`Job refresh complete: ${adzunaInserts.length + himalayasInserts.length} jobs synced, ${expiredCount.count} expired jobs removed`);
   } catch (error) {
     console.error('Job refresh error:', error);
   }
