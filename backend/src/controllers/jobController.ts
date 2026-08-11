@@ -135,18 +135,18 @@ export const fetchAdzunaJobs = async (): Promise<any[]> => {
   }
 };
 
-export const fetchRemoteOKJobs = async (): Promise<any[]> => {
+export const fetchHimalayasJobs = async (): Promise<any[]> => {
   try {
-    const response = await axios.get('https://remoteok.com/api', {
+    const response = await axios.get('https://himalayas.app/jobs/api/search', {
       headers: {
         'User-Agent': 'TechStackRecommender/1.0'
       }
     });
 
-    const jobs = response.data;
-    return Array.isArray(jobs) ? jobs.slice(1, 51) : [];
+    const jobs = response.data?.jobs || [];
+    return Array.isArray(jobs) ? jobs.slice(0, 50) : [];
   } catch (error) {
-    console.error('RemoteOK API error:', error);
+    console.error('Himalayas API error:', error);
     return [];
   }
 };
