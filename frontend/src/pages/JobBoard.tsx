@@ -72,7 +72,7 @@ export default function JobBoard() {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
 
-    // Previous button
+  
     pages.push(
       <button
         key="prev"
@@ -84,7 +84,7 @@ export default function JobBoard() {
       </button>
     );
 
-    // First page
+
     if (startPage > 1) {
       pages.push(
         <button
@@ -100,7 +100,7 @@ export default function JobBoard() {
       }
     }
 
-    // Page numbers
+
     for (let i = startPage; i <= endPage; i++) {
       pages.push(
         <button
@@ -115,7 +115,7 @@ export default function JobBoard() {
       );
     }
 
-    // Last page
+
     if (endPage < totalPages) {
       if (endPage < totalPages - 1) {
         pages.push(<span key="ellipsis2" className="px-2">...</span>);
@@ -131,7 +131,7 @@ export default function JobBoard() {
       );
     }
 
-    // Next button
+
     pages.push(
       <button
         key="next"
